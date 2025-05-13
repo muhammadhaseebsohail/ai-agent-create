@@ -1,42 +1,46 @@
-For comprehensive unit testing, we would want to test not only the successful login case and the incorrect password case, but also scenarios like a non-existent user, missing user credentials, and edge cases like excessively long usernames or passwords. Here are the tests:
+Here is how you might implement the unit tests for the `/login` endpoint:
 
 ```python
 from fastapi.testclient import TestClient
-import pytest
+from fastapi import status
+from main import app
 
 client = TestClient(app)
 
 def test_login_success():
-    response = client.post("/login", data={"username": "johndoe", "password": "secret"})
-    assert response.status_code == 200
-    assert "access_token" in response.json()
-    assert response.json()["token_type"] == "bearer"
+    """Test successful user login."""
+    response = client.post("/login", auth=("testuser", "testpassword"))
+    assert response.status_code == status.HTTP_303_SEE_OTHER
+    assert response.headers["location"] == "/homepage"
 
-def test_login_fail_wrong_password():
-    response = client.post("/login", data={"username": "johndoe", "password": "wrongpassword"})
-    assert response.status_code == 401
+def test_login_invalid_username():
+    """Test login with invalid username."""
+    response = client.post("/login", auth=("wronguser", "testpassword"))
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {"detail": "Incorrect username or password"}
 
-def test_login_fail_nonexistent_user():
-    response = client.post("/login", data={"username": "nonexistentuser", "password": "secret"})
-    assert response.status_code == 401
+def test_login_invalid_password():
+    """Test login with invalid password."""
+    response = client.post("/login", auth=("testuser", "wrongpassword"))
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {"detail": "Incorrect username or password"}
 
-def test_login_fail_missing_username():
-    response = client.post("/login", data={"password": "secret"})
-    assert response.status_code == 422
+def test_login_no_auth():
+    """Test login with no authentication provided."""
+    response = client.post("/login")
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-def test_login_fail_missing_password():
-    response = client.post("/login", data={"username": "johndoe"})
-    assert response.status_code == 422
-
-def test_login_fail_long_username():
-    response = client.post("/login", data={"username": "a"*300, "password": "secret"})
-    assert response.status_code == 422
-
-def test_login_fail_long_password():
-    response = client.post("/login", data={"username": "johndoe", "password": "a"*300})
-    assert response.status_code == 422
+def test_login_empty_username_password():
+    """Test login with empty username and password."""
+    response = client.post("/login", auth=("", ""))
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.json() == {"detail": "Incorrect username or password"}
 ```
 
-The pytest framework is used to run these test cases. FastAPI's TestClient is used to make requests to the FastAPI application. The test cases cover a variety of scenarios and edge cases to ensure the login functionality works as expected in all situations.
+These tests cover:
+- Success case where the user provides valid username and password
+- Error cases where the username or password is incorrect
+- Error case where no authentication details are provided
+- Edge case where both the username and password are empty strings
 
-These tests follow the Arrange, Act, Assert (AAA) pattern. The Arrange step sets up the test - setting the variables, and arranging the conditions for the test. The Act step invokes the method or function with the arranged parameters. The Assert step verifies that the outcome of the Act step is as expected.
+In these tests, we're using FastAPI's `TestClient` to send HTTP requests to our app. We assert on the HTTP status code and the response body to make sure our app is behaving as expected.
