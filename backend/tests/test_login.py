@@ -1,46 +1,57 @@
-Here is how you might implement the unit tests for the `/login` endpoint:
+Sure, here's how you could write the tests using pytest and FastAPI TestClient:
 
 ```python
 from fastapi.testclient import TestClient
-from fastapi import status
 from main import app
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+import pytest
 
-client = TestClient(app)
+engine = create_engine('sqlite:///:memory:')
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def test_login_success():
-    """Test successful user login."""
-    response = client.post("/login", auth=("testuser", "testpassword"))
-    assert response.status_code == status.HTTP_303_SEE_OTHER
-    assert response.headers["location"] == "/homepage"
+@pytest.fixture
+def db():
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-def test_login_invalid_username():
-    """Test login with invalid username."""
-    response = client.post("/login", auth=("wronguser", "testpassword"))
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"detail": "Incorrect username or password"}
+@pytest.fixture
+def client():
+    return TestClient(app)
 
-def test_login_invalid_password():
-    """Test login with invalid password."""
-    response = client.post("/login", auth=("testuser", "wrongpassword"))
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"detail": "Incorrect username or password"}
+def test_login_success(client, db):
+    UserService.create_user(db, UserCreate(username="user1", password="password1"))
+    response = client.post("/login", auth=("user1", "password1"))
+    assert response.status_code == 200
+    assert response.json()["username"] == "user1"
 
-def test_login_no_auth():
-    """Test login with no authentication provided."""
-    response = client.post("/login")
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+def test_login_incorrect_password(client, db):
+    UserService.create_user(db, UserCreate(username="user1", password="password1"))
+    response = client.post("/login", auth=("user1", "wrongpassword"))
+    assert response.status_code == 401
 
-def test_login_empty_username_password():
-    """Test login with empty username and password."""
-    response = client.post("/login", auth=("", ""))
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"detail": "Incorrect username or password"}
+def test_login_incorrect_username(client, db):
+    UserService.create_user(db, UserCreate(username="user1", password="password1"))
+    response = client.post("/login", auth=("wronguser", "password1"))
+    assert response.status_code == 401
+
+def test_login_no_username(client):
+    response = client.post("/login", auth=("", "password1"))
+    assert response.status_code == 401
+
+def test_login_no_password(client):
+    response = client.post("/login", auth=("user1", ""))
+    assert response.status_code == 401
+
+def test_login_special_characters(client, db):
+    UserService.create_user(db, UserCreate(username="user1#@", password="password1"))
+    response = client.post("/login", auth=("user1#@", "password1"))
+    assert response.status_code == 200
+    assert response.json()["username"] == "user1#@"
+
 ```
-
-These tests cover:
-- Success case where the user provides valid username and password
-- Error cases where the username or password is incorrect
-- Error case where no authentication details are provided
-- Edge case where both the username and password are empty strings
-
-In these tests, we're using FastAPI's `TestClient` to send HTTP requests to our app. We assert on the HTTP status code and the response body to make sure our app is behaving as expected.
+In these tests, we are using pytest fixtures for setting up the client and the database session. We create a user before each test, and then we test different scenarios: correct login, incorrect password, incorrect username, no username, no password, and a username with special characters.
