@@ -1,80 +1,71 @@
-Sure, let's implement server-side logic for user authentication. We'll use FastAPI, Pydantic, and a fictitious database layer.
+To complete the task, we will use FastAPI, SQLAlchemy for the database, Pydantic for data validation and Alembic for database migration. Here's how to do it:
 
-Firstly, we need a User model to interact with our database:
+First, let's define the database model:
 
 ```python
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
+    is_active = Column(Boolean, default=True)
 ```
 
-Next, we will need Pydantic models for handling our request/response data:
+Next, we need to define our Pydantic models:
 
 ```python
 from pydantic import BaseModel
+from typing import Optional
 
 class UserBase(BaseModel):
-    username: str
+    email: str
 
 class UserCreate(UserBase):
     password: str
 
-class UserInDB(UserBase):
+class User(UserBase):
     id: int
-    hashed_password: str
+    is_active: bool
 
     class Config:
         orm_mode = True
 ```
 
-Next, we will create a service layer that handles the business logic:
+Now, let's create the service layer:
 
 ```python
-from fastapi import HTTPException, Depends, status
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
 from . import models, schemas
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def get_user(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
 
-class UserService:
-    def get_user_by_username(self, db: Session, username: str):
-        return db.query(models.User).filter(models.User.username == username).first()
-
-    def create_user(self, db: Session, user: schemas.UserCreate):
-        hashed_password = pwd_context.hash(user.password)
-        db_user = models.User(username=user.username, hashed_password=hashed_password)
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        return db_user
-
-    def authenticate_user(self, db: Session, username: str, password: str):
-        user = self.get_user_by_username(db, username)
-        if not user:
-            return False
-        if not pwd_context.verify(password, user.hashed_password):
-            return False
-        return user
+def create_user(db: Session, user: schemas.UserCreate):
+    hashed_password = get_password_hash(user.password)
+    db_user = models.User(email=user.email, hashed_password=hashed_password)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 ```
 
-Finally, we will create our API endpoints:
+Next, define the endpoint in main.py:
 
 ```python
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
-from . import models, schemas, services
+from . import crud, models, schemas
+from .database import SessionLocal
 
 app = FastAPI()
 
+# Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -82,43 +73,43 @@ def get_db():
     finally:
         db.close()
 
-@app.post("/users/", response_model=schemas.UserInDB)
+@app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     """
-    Create a new user.
+    Create a new user
     """
-    db_user = services.UserService().get_user_by_username(db, username=user.username)
+    db_user = crud.get_user_by_email(db, email=user.email)
     if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    return services.UserService().create_user(db=db, user=user)
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return crud.create_user(db=db, user=user)
+```
 
-@app.post("/login/")
-def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    """
-    Authenticate user.
-    """
-    db_user = services.UserService().authenticate_user(db, user.username, user.password)
-    if not db_user:
-        raise HTTPException(status_code=400, detail="Invalid username or password")
-    return {"id": db_user.id, "username": db_user.username}
-``` 
-
-Now, we'll write some unit tests for our endpoints:
+Lastly, let's write some tests:
 
 ```python
 from fastapi.testclient import TestClient
+from main import app
+from . import crud, models, schemas
+
+client = TestClient(app)
 
 def test_create_user():
-    with TestClient(app) as client:
-        response = client.post("/users/", json={"username": "testuser", "password": "testpass"})
-        assert response.status_code == 200
-        assert response.json() == {"id": 1, "username": "testuser"}
+    response = client.post(
+        "/users/",
+        json={"email": "test@example.com", "password": "testpassword"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data['email'] == "test@example.com"
+    assert "id" in data
+    assert data["is_active"] == True
 
-def test_login():
-    with TestClient(app) as client:
-        response = client.post("/login/", json={"username": "testuser", "password": "testpass"})
-        assert response.status_code == 200
-        assert response.json() == {"id": 1, "username": "testuser"}
+def test_create_user_existing_email():
+    response = client.post(
+        "/users/",
+        json={"email": "test@example.com", "password": "testpassword"},
+    )
+    assert response.status_code == 400
 ```
 
-This is a very basic implementation and there are many things you could add. For example, you could include a token-based authentication system, where users receive a token when they log in and then use that token to authenticate future requests. Also, please note that the database session handling is simplified for the sake of this example. In a production application, you would want to use a proper session management system.
+Remember to replace the placeholder functions and variables with your real implementation.
