@@ -1,24 +1,28 @@
-We'll need a few different components to complete this task. First, we'll need a User model to store user data. We'll also need Pydantic models for request and response data. We'll use JWT for session management.
+In this task, I'll use FastAPI, JWT for authentication, and SQLAlchemy for database operations. Here are the main components:
 
-First, we'll define our User model:
+1. SQLAlchemy models for User
+2. Pydantic models for User input and output
+3. A login endpoint
+4. The service layer code to handle authentication logic
+5. A test case for login endpoint
+
+**SQLAlchemy Models**
 
 ```python
-from sqlalchemy import Boolean, Column, Integer, String
-from sqlalchemy.orm import Session
-from .database import Base, engine, SessionLocal
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-    is_active = Column(Boolean, default=True)
-
-Base.metadata.create_all(bind=engine)
+    password = Column(String)
 ```
 
-Next, we'll create Pydantic models for request and response data:
+**Pydantic Models**
 
 ```python
 from pydantic import BaseModel
@@ -31,58 +35,68 @@ class UserCreate(UserBase):
 
 class User(UserBase):
     id: int
-    is_active: bool
 
     class Config:
         orm_mode = True
 ```
 
-We'll create a service to handle user creation and authentication:
+**Authentication Service**
 
 ```python
-from passlib.context import CryptContext
-from . import models, schemas
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_user(db: Session, username: str):
-    return db.query(models.User).filter(models.User.username == username).first()
-
-def create_user(db: Session, user: schemas.UserCreate):
-    hashed_password = get_password_hash(user.password)
-    db_user = models.User(username=user.username, hashed_password=hashed_password)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-```
-
-Now, we can create the endpoints:
-
-```python
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from . import models, schemas, crud
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 
-SECRET_KEY = "your-secret-key"
+# to get a string like this run:
+# openssl rand -hex 32
+SECRET_KEY = "YOUR_SECRET_KEY"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def authenticate_user(db: Session, username: str, password: str):
+    user = get_user(db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def get_user(db: Session, username: str):
+    return db.query(User).filter(User.username == username).first()
+```
+
+**Login Endpoint**
+
+```python
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+
 app = FastAPI()
 
-@app.post("/token", response_model=schemas.Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = crud.authenticate_user(db, form_data.username, form_data.password)
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+@app.post("/token", response_model=Token)
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -90,31 +104,32 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = crud.create_access_token(
+    access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-
-@app.get("/homepage")
-async def read_homepage(token: str = Depends(oauth2_scheme)):
-    return {"message": "Welcome to the homepage!"}
 ```
 
-Finally, we can write a test for our login endpoint:
+**Unit Test**
 
 ```python
 from fastapi.testclient import TestClient
-from main import app
 
 client = TestClient(app)
 
 def test_login():
     response = client.post(
         "/token",
-        data={"username": "test", "password": "testpassword"},
+        data={
+            "username": "testuser",
+            "password": "testpassword"
+        },
     )
     assert response.status_code == 200
     assert "access_token" in response.json()
     assert response.json()["token_type"] == "bearer"
 ```
-This test just checks that the login endpoint returns a token when provided with valid credentials. Depending on your application, you may want to add more tests to ensure that your endpoints behave as expected.
+
+Here, I'm assuming that you have a database with users and their hashed passwords. The `fake_users_db` in `authenticate_user` function is just a placeholder and should be replaced with your actual database session.
+
+Also, replace `"YOUR_SECRET_KEY"` with your actual secret key, this should be a random string and kept secure as it is used in encoding/decoding the JWT tokens.
