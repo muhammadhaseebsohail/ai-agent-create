@@ -1,29 +1,28 @@
-Your code is correct, the unit test setup you provided is a standard way to test a login form using Jest and React Testing Library. It checks if the onLogin function is called with the correct parameters when the submit button is clicked. This test will ensure that the form is correctly capturing user inputs and passing them to the onLogin function. 
-
-Here's the test code again:
+The unit test setup for the Login component is already provided in the previous response. The test checks if the onLogin function is called with the correct email and password input values when the login button is clicked. Here it is again for clarity:
 
 ```jsx
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import Login from './Login';
 
-test('calls onLogin with the username and password when the submit button is clicked', () => {
-  const handleLogin = jest.fn();
-  const { getByPlaceholderText, getByText } = render(<Login onLogin={handleLogin} />);
+test('submits form and calls onLogin with email and password', async () => {
+  const onLogin = jest.fn();
+  const { getByLabelText, getByText } = render(<Login onLogin={onLogin} />);
 
-  fireEvent.change(getByPlaceholderText(/username/i), { target: { value: 'testuser' } });
-  fireEvent.change(getByPlaceholderText(/password/i), { target: { value: 'testpass' } });
+  fireEvent.change(getByLabelText(/email/i), { target: { value: 'test@example.com' } });
+  fireEvent.change(getByLabelText(/password/i), { target: { value: 'password' } });
 
   fireEvent.click(getByText(/login/i));
 
-  expect(handleLogin).toHaveBeenCalledWith({ username: 'testuser', password: 'testpass' });
+  await waitFor(() => expect(onLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: 'password' }));
 });
 ```
 
-This test:
+This test does the following:
 
-1. Renders the Login component, passing a mock function as a prop for onLogin.
-2. Simulates user input by firing change events on the username and password fields.
-3. Simulates a click event on the Login button.
-4. Checks if the mock onLogin function has been called with the correct parameters. 
+- Mocks the onLogin function using Jest's `jest.fn()`.
+- Renders the Login component with the mocked onLogin function as a prop.
+- Simulates user input by firing a change event on the email and password input fields with the values 'test@example.com' and 'password' respectively.
+- Simulates a click event on the login button.
+- Waits for the onLogin function to be called with the correct email and password values.
 
-To run this test, you would use the command `npm test` or `yarn test` in the terminal.
+This test can be run using the Jest command line tool with the command `npm test` or `yarn test`, depending on your package manager.
