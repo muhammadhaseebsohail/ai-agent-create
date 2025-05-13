@@ -1,50 +1,79 @@
-The following are the unit tests for the provided FastAPI endpoints using pytest and FastAPI TestClient:
+Here are the unit tests that cover the suggested cases:
 
 ```python
+import pytest
 from fastapi.testclient import TestClient
-from main import app, fake_users_db, fake_hash_password
+from main import app, authenticate_user, create_access_token
+from models import User, UserInDB
 
 client = TestClient(app)
 
-def test_get_access_token():
-    response = client.post("/token", data={"username": "johndoe", "password": "secret"})
+def test_login_success():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "test", "password": "test"},
+        )
     assert response.status_code == 200
     assert "access_token" in response.json()
-    assert response.json()["token_type"] == "bearer"
+    assert "token_type" in response.json()
 
-def test_get_access_token_wrong_password():
-    response = client.post("/token", data={"username": "johndoe", "password": "wrongpassword"})
+def test_login_error_wrong_password():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "test", "password": "wrong_password"},
+        )
     assert response.status_code == 401
     assert response.json() == {"detail": "Incorrect username or password"}
 
-def test_get_access_token_non_existent_user():
-    response = client.post("/token", data={"username": "nonexistent", "password": "password"})
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Incorrect username or password"}
+def test_login_error_no_username():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"password": "test"},
+        )
+    assert response.status_code == 422
+    assert "username" in response.json()["detail"][0]["loc"]
 
-def test_signup_new_user():
-    response = client.post("/signup", json={"username": "newuser", "password": "newpassword"})
-    assert response.status_code == 200
-    assert response.json() == {"detail": "User created"}
-    assert "newuser" in fake_users_db
-    assert fake_users_db["newuser"]["hashed_password"] != "newpassword"   # password should be hashed
+def test_login_error_no_password():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "test"},
+        )
+    assert response.status_code == 422
+    assert "password" in response.json()["detail"][0]["loc"]
 
-def test_signup_existing_user():
-    response = client.post("/signup", json={"username": "johndoe", "password": "password"})
-    assert response.status_code == 400
-    assert response.json() == {"detail": "Username already exists"}
+def test_login_error_empty_string():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "", "password": ""},
+        )
+    assert response.status_code == 422
 
-def test_signup_without_password():
-    response = client.post("/signup", json={"username": "user_without_password"})
-    assert response.status_code == 422    # Unprocessable Entity
-    assert "detail" in response.json()
+def test_login_edge_case_long_username():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "a"*1025, "password": "test"},
+        )
+    assert response.status_code == 422
 
-def test_signup_without_username():
-    response = client.post("/signup", json={"password": "password_without_username"})
-    assert response.status_code == 422    # Unprocessable Entity
-    assert "detail" in response.json()
+def test_authenticate_user():
+    fake_db = {"test": {"username": "test", "hashed_password": "$2b$12$aM2.y7Dm1yMHCqghW6m9H.Q7E0F3Kq9rR3R2QWv.7IJAu1kqWzL3W"}}
+    user = authenticate_user(fake_db, "test", "test")
+    assert isinstance(user, UserInDB)
+    assert user.username == "test"
+
+def test_create_access_token():
+    to_encode = {"sub": "test"}
+    token = create_access_token(to_encode)
+    assert isinstance(token, str)
+    assert "." in token
 ```
 
-In these tests, we are testing for successful user login, unsuccessful login with wrong password and non-existing user. We are also testing for successful user sign up, sign up with existing username, and sign up with missing username or password. 
+These tests should cover a variety of cases, including successful logins, invalid login attempts (wrong password, missing username or password), data validation (empty strings, long usernames), and edge cases. 
 
-Please, note that for a real-world application, more comprehensive tests would be required, considering various edge cases and possible failures. As this is a simplified version, we are only testing the main functionality and some basic error cases.
+Please note that these tests assume that all usernames and passwords are lower case and that the hashed password for "test" is "$2b$12$aM2.y7Dm1yMHCqghW6m9H.Q7E0F3Kq9rR3R2QWv.7IJAu1kqWzL3W".
