@@ -1,58 +1,62 @@
-To implement this task, we will need two API endpoints: one for user signup and another one for user login. Let's assume we are using OAuth2 for authentication. Also, since we are talking about redirection, we will need to handle it in the frontend part of the application, not in the backend. However, the backend will return the necessary data to let the frontend know whether to redirect or not.
+Here's an example of how you can implement the login functionality using FastAPI.
 
-Here is the necessary backend code:
+First, we will define Pydantic models for our request and response:
 
 ```python
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
 
-# Define your secret key and algorithms here
-SECRET_KEY = "your-secret-key"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+class UserBase(BaseModel):
+    username: str
+    password: str
 
-# Create a password context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+class User(UserBase):
+    id: int
+    is_active: bool
 
-# Initialize the FastAPI app
-app = FastAPI()
+class UserInDB(User):
+    hashed_password: str
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+```
 
-class UserInDB(BaseModel):
-    username: str
-    hashed_password: str
+Next, we'll define the User database model:
 
-# Mock user in database
-fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
-        "hashed_password": pwd_context.hash("secret"),
-    }
-}
+```python
+from sqlalchemy import Boolean, Column, Integer, String
+from .database import Base
 
-def fake_hash_password(password: str):
-    return pwd_context.hash(password)
+class User(Base):
+    __tablename__ = "users"
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    is_active = Column(Boolean, default=True)
+```
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
+Then, we'll create a service layer for handling the authentication logic:
+
+```python
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+
+SECRET_KEY = "a very secret key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def authenticate_user(fake_db, username: str, password: str):
     user = get_user(fake_db, username)
     if not user:
         return False
-    if not pwd_context.verify(password, user.hashed_password):
+    if not verify_password(password, user.hashed_password):
         return False
     return user
 
@@ -66,10 +70,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+```
+
+Now we can define our login endpoint:
+
+```python
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+
+app = FastAPI()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 @app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,23 +100,22 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-
-
-@app.post("/signup")
-def signup(username: str, password: str):
-    if username in fake_users_db:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists",
-        )
-    hashed_password = fake_hash_password(password)
-    fake_users_db[username] = {"username": username, "hashed_password": hashed_password}
-    return {"detail": "User created"}
-
 ```
 
-This code is a simplified version and it uses a mock database and user authentication. If the user authentication is successful, the "/token" endpoint will return an access token that can be used for subsequent requests. On the frontend side, when the access token is received, the user can be redirected to the home page.
+Finally, here's an example of a unit test for this endpoint:
 
-The "/signup" endpoint will create a new user in our mock database. If the username already exists, an error will be raised. When the user is created successfully, a "User created" message is returned.
+```python
+from fastapi.testclient import TestClient
 
-Unit tests and database models are not included in this example as they would need more detailed information about the specific application and its database. The error handling and logging are also simplified.
+def test_login():
+    with TestClient(app) as client:
+        response = client.post(
+            "/token",
+            data={"username": "test", "password": "test"},
+        )
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+    assert "token_type" in response.json()
+```
+
+This code will handle the login functionality, from receiving the login form, authenticating the user, and storing the user's session as a JWT token. The token is then sent back to the user, who can use it to authenticate future requests.
