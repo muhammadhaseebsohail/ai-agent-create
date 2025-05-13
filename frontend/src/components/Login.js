@@ -1,53 +1,47 @@
-Here's how you could create a login component in React:
+Below is the code for a simple Login component using React functional components and hooks. It also uses PropTypes for type checking and includes a basic input validation.
 
 ```jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import './Login.css';
 
-// Login component
-const Login = ({ onLogin }) => {
-  const [email, setEmail] = useState('');
+/**
+* Login component
+* @param {function} props.onLogin - Function to be called on successful login
+*/
+
+function Login({ onLogin }) {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+  const validateInput = () => {
+    if (!username || !password) {
+      setError('All fields are required');
+      return false;
+    }
+    return true;
+  };
 
-    try {
-      await onLogin({ email, password });
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (validateInput()) {
+      onLogin(username, password);
     }
   };
 
   return (
-    <div className="Login">
-      <h1>Login</h1>
-      {error && <div className="error">{error}</div>}
+    <div className="login">
       <form onSubmit={handleSubmit}>
-        <label>
-          Email:
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password:
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        <button type="submit" disabled={loading}>
-          {loading ? 'Loading...' : 'Login'}
-        </button>
+        <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
+        {error && <div className="error">{error}</div>}
+        <button type="submit">Login</button>
       </form>
     </div>
   );
-};
+}
 
-// Prop types
 Login.propTypes = {
   onLogin: PropTypes.func.isRequired,
 };
@@ -55,62 +49,52 @@ Login.propTypes = {
 export default Login;
 ```
 
-Here's the CSS for the component:
+For the CSS part we can use CSS modules. Here is a simple CSS for the Login component.
 
 ```css
 /* Login.css */
-
-.Login {
+.login {
   width: 300px;
   margin: 0 auto;
-  padding: 20px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-.Login h1 {
-  text-align: center;
+.login input {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px;
 }
 
-.Login .error {
+.login .error {
   color: red;
-}
-
-.Login form {
-  display: flex;
-  flex-direction: column;
-}
-
-.Login form label {
   margin-bottom: 10px;
 }
 
-.Login form input {
+.login button {
   padding: 10px;
-  margin-bottom: 20px;
-}
-
-.Login form button {
-  padding: 10px;
+  width: 100%;
 }
 ```
 
-For testing, you can use a library like Jest and React Testing Library:
+For the unit test, you can use Jest and Enzyme. Below is a simple test setup for the Login component.
 
 ```jsx
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
+import { shallow } from 'enzyme';
 import Login from './Login';
 
-test('submits form and calls onLogin with email and password', async () => {
-  const onLogin = jest.fn();
-  const { getByLabelText, getByText } = render(<Login onLogin={onLogin} />);
+describe('Login Component', () => {
+  it('renders without crashing', () => {
+    shallow(<Login onLogin={() => {}} />);
+  });
 
-  fireEvent.change(getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-  fireEvent.change(getByLabelText(/password/i), { target: { value: 'password' } });
+  it('calls onLogin on form submission', () => {
+    const onLoginMock = jest.fn();
 
-  fireEvent.click(getByText(/login/i));
+    const wrapper = shallow(<Login onLogin={onLoginMock} />);
+    wrapper.find('form').simulate('submit', { preventDefault: () => {} });
 
-  await waitFor(() => expect(onLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: 'password' }));
+    expect(onLoginMock).toHaveBeenCalled();
+  });
 });
 ```
-
-This component and test setup follow best practices by including error handling, loading states, and keeping components reusable and maintainable. They also use functional components and hooks.
