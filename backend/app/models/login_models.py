@@ -1,39 +1,57 @@
-In the provided code, there is no explicit response model defined. However, the login endpoint is returning a RedirectResponse, which will redirect the client to a different URL (in this case, '/home'). For the purpose of this task, let's assume that the '/home' endpoint returns a User object. Here is how we can define the request/response models and data transfer object:
+The request/response models for the `login` endpoint are implicitly defined by the FastAPI framework via the `HTTPBasicCredentials` and `User` Pydantic models. 
 
-1. Pydantic models for request/response
+However, we can also explicitly define a `UserLogin` model for organization and clarity:
+
 ```python
 from pydantic import BaseModel
 
-class UserBase(BaseModel):
-    email: str
+class UserLogin(BaseModel):
+    username: str
     password: str
-
-class UserLogin(UserBase):
-    pass
-
-class User(BaseModel):
-    id: int
-    email: str
-    name: str
-    is_active: bool
-    class Config:
-        orm_mode = True
 ```
 
-In this case, UserLogin model is used as a request model and User model is used as a response model.
+Then, we can modify the `login` endpoint to use this model:
 
-2. Data Transfer Object
 ```python
-from typing import Dict
-
-class UserDTO:
-    def __init__(self, user: Dict):
-        self.id = user['id']
-        self.email = user['email']
-        self.name = user['name']
-        self.is_active = user['is_active']
+@app.post("/login", response_model=User)
+def login(user_login: UserLogin = Depends(), db: Session = Depends(get_db)):
+    """
+    Login user
+    """
+    user = UserService.get_user_by_username(db, user_login.username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    if not UserService.verify_password(user_login.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return user
 ```
 
-The UserDTO is a data transfer object, used to transfer data between different parts of the application. It provides a way to handle data in a more abstract way without needing to worry about the details of how the data is stored or retrieved. 
+Now, the `UserLogin` model serves as the input data transfer object (DTO) and the `User` model serves as the output DTO for the `login` endpoint. 
 
-Please note that in the actual implementation, the DTO object should map to the database model or ORM object. The provided UserDTO is a simple example and doesn't have any methods to interact with a database. The actual DTO object should have methods like create, update, delete, and more. Besides, the DTO object can be used to validate the incoming data before it is sent to the database.
+For unit testing, we need to update the test to use the `UserLogin` model:
+
+```python
+import pytest
+import requests
+
+def test_login():
+    response = requests.post("http://localhost:8000/login", json={"username": "user1", "password": "password1"})
+    assert response.status_code == 200
+    assert response.json()["username"] == "user1"
+
+    response = requests.post("http://localhost:8000/login", json={"username": "user1", "password": "wrongpassword"})
+    assert response.status_code == 401
+
+    response = requests.post("http://localhost:8000/login", json={"username": "wronguser", "password": "password1"})
+    assert response.status_code == 401
+```
+
+Note that the request data is now sent as a JSON payload instead of Basic Auth.
