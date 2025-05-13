@@ -1,68 +1,97 @@
-Here is an example of how you might implement this in FastAPI.
+For this task, we'll need to implement an endpoint that handles user login and then redirects to the homepage if the login is successful. Here's how we can do this using FastAPI, Pydantic and OAuth2 with JWT tokens for authentication:
 
-First, let's define the Pydantic models for the request and response:
-
+1. Pydantic models for request/response
 ```python
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
-class UserLogin(BaseModel):
-    username: str
+class UserBase(BaseModel):
+    email: str
     password: str
 
-class UserLoginResponse(BaseModel):
-    detail: str
+class UserLogin(UserBase):
+    pass
 ```
 
-Now, let's define the API endpoint for user login:
-
+2. Service Layer Code
 ```python
-from fastapi import FastAPI, HTTPException, status, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from passlib.context import CryptContext
-from starlette.responses import RedirectResponse
-from pydantic import EmailStr
+from datetime import datetime, timedelta
+from typing import Optional
 
-# Initialize app and security
-app = FastAPI()
-security = HTTPBasic()
-crypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = "secret key here"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Dummy user data for testing
-user_data = {
-    "username": "testuser",
-    "password": crypt_context.hash("testpassword")
-}
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-@app.post("/login", response_model=UserLoginResponse)
-def login(credentials: HTTPBasicCredentials = Depends(security)):
-    """
-    API endpoint for user login. On successful login, redirects to homepage.
-    """
-    username = credentials.username
-    password = credentials.password
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-    if username not in user_data or not crypt_context.verify(password, user_data[username]):
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def authenticate_user(fake_db, email: str, password: str):
+    user = get_user(fake_db, email)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+```
+
+3. API endpoint
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+
+router = APIRouter()
+
+@router.post("/login", response_model=str)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_db, form_data.username, form_data.password)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # If the username and password are correct, redirect to homepage
-    response = RedirectResponse(url='/homepage', status_code=status.HTTP_303_SEE_OTHER)
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    # Redirection to home
+    response = RedirectResponse(url='/home')
+    response.set_cookie(
+        "Authorization",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        max_age=1800,
+        expires=1800,
+    )
     return response
 ```
 
-For the unit test:
-
+4. Unit Tests
 ```python
 from fastapi.testclient import TestClient
 
 def test_login():
-    client = TestClient(app)
-    response = client.post("/login", auth=("testuser", "testpassword"))
-    assert response.status_code == 303
-    assert response.headers["location"] == "/homepage"
+    with TestClient(app) as client:
+        response = client.post("/login", data={"username": "test", "password": "test"})
+        assert response.status_code == 200
+        assert response.headers["location"] == "/home"
 ```
 
-Please note that you should replace the dummy user data with a proper authentication backend (like a database) in a real application. This example is simplified for the purpose of demonstration.
+Please note that the `fake_db` and `get_user` are placeholders and should be replaced with your actual database and query to get user details.
