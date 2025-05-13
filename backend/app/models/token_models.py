@@ -1,58 +1,37 @@
-In your code, you have already used the `BaseModel` class from the Pydantic module to create data models. However, you are missing the models for the `Token` and the `Signup` request. Let's fix this:
-
-The `Token` model could be as follows:
+The Pydantic models for the request and response have already been defined in the provided code. Here they are again for clarity:
 
 ```python
+from pydantic import BaseModel
+from typing import Optional
+
+# Base model for user data
+class UserBase(BaseModel):
+    username: str
+    password: str
+
+# User model with additional fields
+class User(UserBase):
+    id: int
+    is_active: bool
+
+# User model for database with hashed password
+class UserInDB(User):
+    hashed_password: str
+
+# Token model
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+# Token data model
+class TokenData(BaseModel):
+    username: Optional[str] = None
 ```
 
-The `Signup` request model should take a `username` and `password` parameters:
+Here, `UserBase` serves as the request model for user login, with fields for `username` and `password`. The `Token` model is used as the response model, returning an `access_token` and its `token_type` upon successful authentication. 
 
-```python
-class Signup(BaseModel):
-    username: str
-    password: str
-```
+The `UserInDB` model is used as a Data Transfer Object (DTO). It is used to communicate between different parts of the application (like from the service layer to the database layer) and encapsulate the data a user sends during the login process, including a hashed version of the user's password for secure storage.
 
-Now, the API endpoints need to use these models:
+The `TokenData` model is used to handle the data encapsulated in the token, specifically the `username` of the authenticated user. 
 
-The `/token` endpoint is already using the `Token` model:
-
-```python
-@app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    ...
-```
-
-The `/signup` endpoint should use the `Signup` model:
-
-```python
-@app.post("/signup")
-def signup(signup_request: Signup):
-    username = signup_request.username
-    password = signup_request.password
-    ...
-```
-
-Also, you should create a `User` model for responses when creating a user:
-
-```python
-class User(BaseModel):
-    username: str
-    password: str
-```
-
-And use it in the `/signup` endpoint:
-
-```python
-@app.post("/signup", response_model=User)
-def signup(signup_request: Signup):
-    username = signup_request.username
-    password = signup_request.password
-    ...
-    return {"username": username, "password": hashed_password}
-```
-
-Now, when a new user is created, the response will include the username and the hashed password. This is just an example. In a real-world application, you wouldn't want to return the hashed password in the response. You should replace it with a message indicating that the user was created successfully or with other relevant data.
+The FastAPI framework uses these models to automatically handle request validation, serialization, and documentation.
