@@ -1,79 +1,100 @@
-Here are the unit tests that cover the suggested cases:
+Sure, here are examples of some additional tests that you might want to write:
 
 ```python
-import pytest
 from fastapi.testclient import TestClient
-from main import app, authenticate_user, create_access_token
-from models import User, UserInDB
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from main import app, get_db, models
+from .database import Base
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base.metadata.create_all(bind=engine)
 
 client = TestClient(app)
 
-def test_login_success():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"username": "test", "password": "test"},
-        )
+
+def override_get_db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+app.dependency_overrides[get_db] = override_get_db
+
+
+def test_create_user():
+    response = client.post(
+        "/users/",
+        json={"username": "testuser", "password": "testpassword"},
+    )
     assert response.status_code == 200
-    assert "access_token" in response.json()
-    assert "token_type" in response.json()
+    assert response.json() == {"username": "testuser", "id": 1, "is_active": True}
 
-def test_login_error_wrong_password():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"username": "test", "password": "wrong_password"},
-        )
+def test_create_user_existing_username():
+    response = client.post(
+        "/users/",
+        json={"username": "testuser", "password": "testpassword"},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Username already registered"}
+
+def test_create_user_invalid_data():
+    response = client.post(
+        "/users/",
+        json={"username": "", "password": "testpassword"},
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": [
+            {
+                "loc": ["body", "username"],
+                "msg": "field required",
+                "type": "value_error.missing",
+            }
+        ]
+    }
+
+def test_login_invalid_password():
+    response = client.post(
+        "/token",
+        data={"username": "testuser", "password": "wrongpassword"},
+    )
     assert response.status_code == 401
-    assert response.json() == {"detail": "Incorrect username or password"}
+    assert response.json() == {
+        "detail": "Incorrect username or password",
+        "headers": {"WWW-Authenticate": "Bearer"},
+    }
 
-def test_login_error_no_username():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"password": "test"},
-        )
-    assert response.status_code == 422
-    assert "username" in response.json()["detail"][0]["loc"]
+def test_login_non_existent_user():
+    response = client.post(
+        "/token",
+        data={"username": "nonexistentuser", "password": "testpassword"},
+    )
 
-def test_login_error_no_password():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"username": "test"},
-        )
-    assert response.status_code == 422
-    assert "password" in response.json()["detail"][0]["loc"]
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "Incorrect username or password",
+        "headers": {"WWW-Authenticate": "Bearer"},
+    }
 
-def test_login_error_empty_string():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"username": "", "password": ""},
-        )
-    assert response.status_code == 422
+def test_read_homepage_no_token():
+    response = client.get("/homepage")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
 
-def test_login_edge_case_long_username():
-    with TestClient(app) as client:
-        response = client.post(
-            "/token",
-            data={"username": "a"*1025, "password": "test"},
-        )
-    assert response.status_code == 422
-
-def test_authenticate_user():
-    fake_db = {"test": {"username": "test", "hashed_password": "$2b$12$aM2.y7Dm1yMHCqghW6m9H.Q7E0F3Kq9rR3R2QWv.7IJAu1kqWzL3W"}}
-    user = authenticate_user(fake_db, "test", "test")
-    assert isinstance(user, UserInDB)
-    assert user.username == "test"
-
-def test_create_access_token():
-    to_encode = {"sub": "test"}
-    token = create_access_token(to_encode)
-    assert isinstance(token, str)
-    assert "." in token
+def test_read_homepage_invalid_token():
+    response = client.get("/homepage", headers={"Authorization": "Bearer invalidtoken"})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Could not validate credentials"}
 ```
 
-These tests should cover a variety of cases, including successful logins, invalid login attempts (wrong password, missing username or password), data validation (empty strings, long usernames), and edge cases. 
-
-Please note that these tests assume that all usernames and passwords are lower case and that the hashed password for "test" is "$2b$12$aM2.y7Dm1yMHCqghW6m9H.Q7E0F3Kq9rR3R2QWv.7IJAu1kqWzL3W".
+These tests cover various success and error cases, including data validation and edge cases. They make use of FastAPI's dependency override feature to replace the `get_db` function with a version that uses a test database. This allows the tests to run independently of the main application database.
