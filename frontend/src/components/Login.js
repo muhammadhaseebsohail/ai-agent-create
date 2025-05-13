@@ -1,112 +1,125 @@
-Here's an example of how you can implement a Login component that redirects to the homepage after a successful login using React.
-
-1. The complete component code:
+Here is a basic setup for a Login component in React:
 
 ```jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import axios from 'axios';
-import { useHistory } from 'react-router-dom';
+import './Login.css';
 
-/**
- * Login component, handles user login and redirects to homepage on successful login.
- *
- * @param {string} loginApiUrl - API url for login request.
- * @returns {React.Component}
- */
-function Login({ loginApiUrl }) {
+const Login = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  const history = useHistory();
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const validateForm = () => username.length > 0 && password.length > 0;
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setIsLoading(true);
-    setError(null);
-
     try {
-      await axios.post(loginApiUrl, { username, password });
-      history.push('/homepage');
-    } catch (err) {
-      setError(err.message || 'An error occurred during login');
+      await onLogin(username, password);
+    } catch (e) {
+      setError(e.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div>
-      <h1>Login</h1>
-
-      {error && <div>{error}</div>}
-
+    <div className="login-wrapper">
+      <h2>Login</h2>
+      {error && <div className="error">{error}</div>}
       <form onSubmit={handleSubmit}>
         <input
+          id="username"
           type="text"
           placeholder="Username"
           value={username}
-          onChange={e => setUsername(e.target.value)}
+          onChange={(e) => setUsername(e.target.value)}
+          required
         />
-
         <input
+          id="password"
           type="password"
           placeholder="Password"
           value={password}
-          onChange={e => setPassword(e.target.value)}
+          onChange={(e) => setPassword(e.target.value)}
+          required
         />
-
-        <button type="submit" disabled={isLoading}>
-          {isLoading ? 'Logging in...' : 'Login'}
+        <button type="submit" disabled={!validateForm() || isLoading}>
+          {isLoading ? 'Loading...' : 'Login'}
         </button>
       </form>
     </div>
   );
-}
+};
 
 Login.propTypes = {
-  loginApiUrl: PropTypes.string.isRequired,
+  onLogin: PropTypes.func.isRequired,
 };
 
 export default Login;
 ```
 
-2. CSS/Styling:
+Here is the accompanying CSS:
 
 ```css
-/* CSS in JS styling */
+/* Login.css */
+.login-wrapper {
+  width: 300px;
+  margin: 0 auto;
+}
 
-button[disabled] {
-  opacity: 0.5;
+input {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:disabled {
+  background-color: #ccc;
   cursor: not-allowed;
+}
+
+.error {
+  color: red;
+  margin-bottom: 10px;
 }
 ```
 
-3. PropTypes:
+For the PropTypes, we've defined that onLogin is a required function.
+
+Finally, here's a basic test setup for this component:
 
 ```jsx
-Login.propTypes = {
-  loginApiUrl: PropTypes.string.isRequired,
-};
-```
-
-4. Basic unit test setup:
-
-```jsx
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
+import { render, fireEvent } from '@testing-library/react';
 import Login from './Login';
 
-test('handles login and redirects on success', async () => {
-  const fakeApi = 'http://fakeapi.com';
-  const { getByPlaceholderText, getByText } = render(<Login loginApiUrl={fakeApi} />);
+test('renders login form', () => {
+  const onLogin = jest.fn();
+  const { getByLabelText, getByText } = render(<Login onLogin={onLogin} />);
 
-  fireEvent.change(getByPlaceholderText(/username/i), { target: { value: 'testuser' } });
-  fireEvent.change(getByPlaceholderText(/password/i), { target: { value: 'testpass' } });
+  const usernameInput = getByLabelText(/username/i);
+  const passwordInput = getByLabelText(/password/i);
+  
+  fireEvent.change(usernameInput, { target: { value: 'testuser' } });
+  fireEvent.change(passwordInput, { target: { value: 'testpassword' } });
   
   fireEvent.click(getByText(/login/i));
-
-  await waitFor(() => expect(getByText(/logging in.../i)).toBeInTheDocument());
+  
+  expect(onLogin).toHaveBeenCalledWith('testuser', 'testpassword');
 });
 ```
