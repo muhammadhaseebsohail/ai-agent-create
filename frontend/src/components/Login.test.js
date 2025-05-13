@@ -1,28 +1,40 @@
-The unit test setup for the Login component is already provided in the previous response. The test checks if the onLogin function is called with the correct email and password input values when the login button is clicked. Here it is again for clarity:
-
 ```jsx
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
+import { render, fireEvent } from '@testing-library/react';
 import Login from './Login';
 
-test('submits form and calls onLogin with email and password', async () => {
-  const onLogin = jest.fn();
-  const { getByLabelText, getByText } = render(<Login onLogin={onLogin} />);
+describe('Login Component', () => {
+  it('renders without crashing', () => {
+    const { getByPlaceholderText } = render(<Login onLogin={() => {}} />);
+    
+    expect(getByPlaceholderText('Username')).toBeInTheDocument();
+    expect(getByPlaceholderText('Password')).toBeInTheDocument();
+  });
+  
+  it('calls onLogin on form submission', () => {
+    const onLoginMock = jest.fn();
 
-  fireEvent.change(getByLabelText(/email/i), { target: { value: 'test@example.com' } });
-  fireEvent.change(getByLabelText(/password/i), { target: { value: 'password' } });
+    const { getByPlaceholderText, getByText } = render(<Login onLogin={onLoginMock} />);
+    fireEvent.change(getByPlaceholderText('Username'), { target: { value: 'testUser' } });
+    fireEvent.change(getByPlaceholderText('Password'), { target: { value: 'testPassword' } });
+    fireEvent.click(getByText('Login'));
 
-  fireEvent.click(getByText(/login/i));
+    expect(onLoginMock).toHaveBeenCalledWith('testUser', 'testPassword');
+  });
+  
+  it('displays error when fields are empty', () => {
+    const onLoginMock = jest.fn();
 
-  await waitFor(() => expect(onLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: 'password' }));
+    const { getByText } = render(<Login onLogin={onLoginMock} />);
+    fireEvent.click(getByText('Login'));
+
+    expect(getByText('All fields are required')).toBeInTheDocument();
+  });
 });
 ```
 
-This test does the following:
+In the first test, we're simply checking if the Login component renders without crashing and if the input fields are present in the document.
 
-- Mocks the onLogin function using Jest's `jest.fn()`.
-- Renders the Login component with the mocked onLogin function as a prop.
-- Simulates user input by firing a change event on the email and password input fields with the values 'test@example.com' and 'password' respectively.
-- Simulates a click event on the login button.
-- Waits for the onLogin function to be called with the correct email and password values.
+In the second test, we simulate user interaction by entering values into the username and password fields and clicking the 'Login' button. We then expect the `onLogin` function to have been called with the correct arguments.
 
-This test can be run using the Jest command line tool with the command `npm test` or `yarn test`, depending on your package manager.
+In the third test, we simulate a user clicking the 'Login' button without entering any values into the username and password fields. Since the Login component validates the input and sets an error message when either field is empty, we expect to see the error message in the document.
